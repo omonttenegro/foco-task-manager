@@ -25,22 +25,19 @@ export const activeTasks = (state: AppState) => state.tasks.filter((task) => !is
 export const tasksForCategory = (state: AppState, categoryId: string) => activeTasks(state).filter((task) => task.categoryId === categoryId);
 export const tasksForProject = (state: AppState, projectId: string) => activeTasks(state).filter((task) => task.projectId === projectId);
 export function isVisibleInActiveTree(state: AppState, task: Task) {
-  if (isHidden(state, task)) return false;
-  let root = task;
-  let parentId: string | null = task.parentTaskId;
+  let current: Task | undefined = task;
   const visited = new Set<string>();
-  while (parentId && !visited.has(parentId)) {
-    visited.add(parentId);
-    const parent = state.tasks.find((item) => item.id === parentId);
-    if (!parent) break;
-    if (isHidden(state, parent)) return false;
-    root = parent;
-    parentId = parent.parentTaskId;
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    if (isHidden(state, current) || current.status === 'done') return false;
+    current = current.parentTaskId
+      ? state.tasks.find((item) => item.id === current!.parentTaskId)
+      : undefined;
   }
-  return root.status !== 'done';
+  return true;
 }
-// A child keeps its own status when the main task is completed, but the whole
-// family leaves every active workflow together. History can still show each
+// A child keeps its own status when an ancestor is completed, but that entire
+// subtree leaves every active workflow together. History can still show each
 // member and its real, unchanged status.
 export const pendingTasks = (state: AppState) => activeTasks(state)
   .filter((task) => task.status !== 'done' && isVisibleInActiveTree(state, task));

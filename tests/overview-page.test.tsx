@@ -40,4 +40,31 @@ describe('Hoje', () => {
     expect(screen.getByText('3', { selector: '.home-summary strong' })).toBeInTheDocument();
     expect(screen.queryByText('0 min')).not.toBeInTheDocument();
   });
+
+  it('mostra todas as tarefas atrasadas sem limitar a secção a cinco linhas', () => {
+    const state: AppState = {
+      categories: [], projects: [], dependencies: [], sessions: [],
+      tasks: Array.from({ length: 8 }, (_, index) => task(`late-${index}`, `Atrasada ${index + 1}`, '2020-01-01')),
+      settings: { theme: 'light', accent: 'pink', preferredCalendarView: 'week', weekStartsOn: 1, dailyCapacityMinutes: 480 },
+    };
+
+    render(<OverviewPage state={state} onOpenTask={vi.fn()} />);
+
+    expect(screen.getByText('Atrasada 8')).toBeInTheDocument();
+    expect(document.querySelectorAll('.section-late [data-task-id]')).toHaveLength(8);
+  });
+
+  it('não conta nem mostra subtarefas de uma tarefa principal concluída', () => {
+    const parent = { ...task('parent', 'Principal', '2020-01-01'), status: 'done' as const, completedAt: timestamp };
+    const child = { ...task('child', 'Subtarefa atrasada', '2020-01-01'), parentTaskId: parent.id };
+    const state: AppState = {
+      categories: [], projects: [], dependencies: [], sessions: [], tasks: [parent, child],
+      settings: { theme: 'light', accent: 'pink', preferredCalendarView: 'week', weekStartsOn: 1, dailyCapacityMinutes: 480 },
+    };
+
+    const { container } = render(<OverviewPage state={state} onOpenTask={vi.fn()} />);
+
+    expect(screen.queryByText('Subtarefa atrasada')).not.toBeInTheDocument();
+    expect(container.querySelector('.home-summary span:nth-child(2) strong')).toHaveTextContent('0');
+  });
 });

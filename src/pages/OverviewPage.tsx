@@ -24,7 +24,7 @@ function TaskSection({ title, tasks, state, onOpenTask, empty, sessionDay, varia
       <div className="calm-section-title"><h2>{title}</h2><span>{tasks.length}</span></div>
       <span className="section-icon" aria-hidden="true"><Icon /></span>
     </header>
-    <div className="calm-section-body">{tasks.length ? tasks.slice(0, 5).map((task) => {
+    <div className="calm-section-body">{tasks.length ? tasks.map((task) => {
       const taskSessions = sessionDay ? sessionsForDay(state, sessionDay).filter((session) => session.taskId === task.id) : [];
       const sessionMinutes = taskSessions.length ? taskSessions.reduce((sum, session) => sum + session.plannedDuration, 0) : undefined;
       const deadlineWithoutPlan = Boolean(sessionDay && task.deadline === sessionDay && taskSessions.length === 0);

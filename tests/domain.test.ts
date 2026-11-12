@@ -21,17 +21,17 @@ describe('seletores de domínio', () => {
     expect(countWorkItems(state([parent, child]), [child])).toBe(1);
   });
 
-  it('mantém toda a família visível até a tarefa principal desaparecer', () => {
+  it('retira uma subárvore das vistas ativas quando o respetivo pai é concluído', () => {
     const root = task('principal');
     const parent = task('filho', { parentTaskId: root.id, status: 'done', completedAt: timestamp });
-    const child = task('neto', { parentTaskId: parent.id, status: 'done', completedAt: timestamp });
+    const child = task('neto', { parentTaskId: parent.id });
     const app = state([root, parent, child]);
-    expect(isVisibleInActiveTree(app, parent)).toBe(true);
-    expect(isVisibleInActiveTree(app, child)).toBe(true);
-    root.status = 'done';
-    expect(isVisibleInActiveTree(app, root)).toBe(false);
+    expect(isVisibleInActiveTree(app, root)).toBe(true);
     expect(isVisibleInActiveTree(app, parent)).toBe(false);
     expect(isVisibleInActiveTree(app, child)).toBe(false);
+    expect(pendingTasks(app)).toEqual([root]);
+    root.status = 'done';
+    expect(isVisibleInActiveTree(app, root)).toBe(false);
   });
 
   it('retira a família concluída do trabalho ativo sem alterar os filhos', () => {

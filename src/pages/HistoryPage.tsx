@@ -1,7 +1,8 @@
-import { Archive, ArrowUpDown, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Circle, History, SlidersHorizontal } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import type { AppState, Task } from '../../shared/types';
+import { Archive, ArrowUpDown, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Circle, History, Layers3, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { useMemo, useState, type CSSProperties } from 'react';
+import type { AppState, Project, Task } from '../../shared/types';
 import { PageHeader } from '../components/PageHeader';
+import { useApp } from '../context/AppContext';
 import { categoryOf, isHidden, projectOf } from '../lib/domain';
 
 type StatusFilter = 'all' | 'pending' | 'done';
@@ -26,13 +27,32 @@ function inDateRange(task: Task, startDate: string, endDate: string) {
   return (start === null || moment >= start) && (end === null || moment <= end);
 }
 
+function projectTaskTree(tasks: Task[]) {
+  const ordered: Array<{ task: Task; depth: number }> = [];
+  const children = new Map<string | null, Task[]>();
+  tasks.forEach((task) => children.set(task.parentTaskId, [...(children.get(task.parentTaskId) ?? []), task]));
+  children.forEach((items) => items.sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)));
+  const seen = new Set<string>();
+  const visit = (task: Task, depth: number) => {
+    if (seen.has(task.id)) return;
+    seen.add(task.id);
+    ordered.push({ task, depth });
+    (children.get(task.id) ?? []).forEach((child) => visit(child, depth + 1));
+  };
+  (children.get(null) ?? []).forEach((task) => visit(task, 0));
+  tasks.filter((task) => !seen.has(task.id)).forEach((task) => visit(task, 0));
+  return ordered;
+}
+
 export function HistoryPage({ state, onOpenTask }: { state: AppState; onOpenTask: (id: string) => void }) {
+  const { mutate, busy, notify } = useApp();
   const [status, setStatus] = useState<StatusFilter>('all');
   const [category, setCategory] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [sort, setSort] = useState<SortFilter>('recent');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 
   const completed = state.tasks.filter((task) => task.status === 'done').length;
   const pending = state.tasks.length - completed;
@@ -59,8 +79,25 @@ export function HistoryPage({ state, onOpenTask }: { state: AppState; onOpenTask
     return [...result.entries()];
   }, [filtered]);
 
+  const archivedProjects = useMemo(() => state.projects
+    .filter((project) => project.archived)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [state.projects]);
+  const projectTasks = useMemo(() => new Map(archivedProjects.map((project) => [
+    project.id,
+    projectTaskTree(state.tasks.filter((task) => task.projectId === project.id)),
+  ])), [archivedProjects, state.tasks]);
+
   const activeFilters = Number(category !== 'all') + Number(Boolean(startDate || endDate));
   const clearFilters = () => { setCategory('all'); setStartDate(''); setEndDate(''); };
+  const toggleProject = (projectId: string) => setExpandedProjects((current) => {
+    const next = new Set(current);
+    next.has(projectId) ? next.delete(projectId) : next.add(projectId);
+    return next;
+  });
+  const reopenProject = async (project: Project) => {
+    const result = await mutate<Project>(`/api/projects/${project.id}`, 'PATCH', { archived: false }, { silent: true });
+    if (result) notify(`“${project.name}” foi reaberto.`);
+  };
 
   return <div className="history-page">
     <PageHeader title="Histórico" />
@@ -71,6 +108,39 @@ export function HistoryPage({ state, onOpenTask }: { state: AppState; onOpenTask
       <article><Circle /><span><strong>{pending}</strong><small>Pendentes</small></span></article>
       <article><Archive /><span><strong>{archived}</strong><small>Arquivadas</small></span></article>
     </section>
+
+    {archivedProjects.length > 0 && <section className="history-projects" aria-labelledby="completed-groups-title">
+      <header><div><span className="history-kicker"><Layers3 />Objetivos terminados</span><h2 id="completed-groups-title">Grupos concluídos</h2><p>Consulta o que ficou feito e o que ficou por fazer, sem alterar o estado das tarefas.</p></div><strong>{archivedProjects.length}</strong></header>
+      <div className="history-project-cards">{archivedProjects.map((project) => {
+        const items = projectTasks.get(project.id) ?? [];
+        const completedCount = items.filter(({ task }) => task.status === 'done').length;
+        const pendingCount = items.length - completedCount;
+        const expanded = expandedProjects.has(project.id);
+        const itemCategory = state.categories.find((categoryItem) => categoryItem.id === project.categoryId);
+        const regionId = `history-project-${project.id}`;
+        return <article className={`history-project-card ${expanded ? 'expanded' : ''}`} key={project.id}>
+          <div className="history-project-card-head">
+            <button type="button" className="history-project-toggle" onClick={() => toggleProject(project.id)} aria-expanded={expanded} aria-controls={regionId}>
+              <span className="history-project-icon" style={{ '--project-color': itemCategory?.color ?? 'var(--primary)' } as CSSProperties}><Layers3 /></span>
+              <span className="history-project-name"><strong>{project.name}</strong><small>{itemCategory?.name ?? 'Sem categoria'} · terminado em {readableDate(project.updatedAt)}</small></span>
+              <span className="history-project-counts"><em className="complete">{completedCount} {completedCount === 1 ? 'concluída' : 'concluídas'}</em><em className="pending">{pendingCount} por fazer</em></span>
+              <ChevronDown />
+            </button>
+            {pendingCount > 0 && <button type="button" className="button subtle history-project-reopen" disabled={busy} onClick={() => void reopenProject(project)} title="Voltar a mostrar este grupo nas tarefas"><RotateCcw />Reabrir</button>}
+          </div>
+          {expanded && <div className="history-project-task-list" id={regionId}>
+            {items.length ? items.map(({ task, depth }) => {
+              const done = task.status === 'done';
+              return <button type="button" className="history-project-task" key={task.id} onClick={() => onOpenTask(task.id)} style={{ '--task-indent': `${Math.min(depth, 4) * 13}px` } as CSSProperties}>
+                <span className={`history-row-status ${done ? 'done' : ''}`}>{done ? <CheckCircle2 /> : <Circle />}</span>
+                <span><strong className={done ? 'done' : ''}>{task.title}</strong><small>{task.parentTaskId ? 'Subtarefa' : 'Tarefa principal'}</small></span>
+                <em className={done ? 'complete' : 'pending'}>{done ? 'Concluída' : 'Por fazer'}</em><ChevronRight />
+              </button>;
+            }) : <p className="history-project-no-tasks">Este grupo já não tem tarefas associadas.</p>}
+          </div>}
+        </article>;
+      })}</div>
+    </section>}
 
     <div className="history-toolbar">
       <div className="status-tabs" role="group" aria-label="Estado das tarefas">

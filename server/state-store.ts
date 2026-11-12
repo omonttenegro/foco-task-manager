@@ -369,7 +369,9 @@ export class StateStore {
 
     const selectedIds = new Set(taskIds);
     const currentRoots = this.state.tasks.filter((task) => task.projectId === projectId && task.parentTaskId === null);
-    currentRoots.filter((task) => !selectedIds.has(task.id)).forEach((task) => this.updateTaskFamily(task.id, null, task.categoryId, stamp));
+    currentRoots
+      .filter((task) => task.status !== 'done' && !task.archived && !selectedIds.has(task.id))
+      .forEach((task) => this.updateTaskFamily(task.id, null, task.categoryId, stamp));
     selected.forEach((task) => this.updateTaskFamily(task.id, projectId, categoryId, stamp));
     const project = this.get(this.state.projects, projectId);
     Object.assign(project, { archived: false, updatedAt: stamp });
@@ -400,11 +402,10 @@ export class StateStore {
   private syncProjectLifecycle(projectId: string | null, previouslyUsed: boolean) {
     if (!projectId) return;
     const project = this.state.projects.find((item) => item.id === projectId);
-    if (!project) return;
+    if (!project || project.archived) return;
     const related = this.state.tasks.filter((task) => task.projectId === projectId);
     const hasActiveRoot = related.some((task) => task.parentTaskId === null && task.status !== 'done' && !task.archived);
-    if (hasActiveRoot) Object.assign(project, { archived: false, updatedAt: now() });
-    else if (related.length || previouslyUsed) Object.assign(project, { archived: true, updatedAt: now() });
+    if (!hasActiveRoot && (related.length || previouslyUsed)) Object.assign(project, { archived: true, updatedAt: now() });
   }
 
   private assertNoParentCycle(taskId: string, parentId: string) {

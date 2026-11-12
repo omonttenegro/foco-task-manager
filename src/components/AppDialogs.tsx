@@ -1,4 +1,4 @@
-import { Check, Download, Layers3, LogOut, ShieldCheck, Upload, UserRound } from 'lucide-react';
+import { Check, CheckCircle2, Download, Layers3, LogOut, ShieldCheck, Upload, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { AppAccent, Backup, CalendarView, Category, PlannedSession, Project, Settings, Theme } from '../../shared/types';
 import { useApp } from '../context/AppContext';
@@ -83,8 +83,11 @@ function CategoryDialog({ id, onClose, onCreated }: { id?: string; onClose: () =
 }
 
 function ProjectDialog({ id, categoryId, onClose, onCreated }: { id?: string; categoryId: string; onClose: () => void; onCreated: (kind: 'project', id: string, categoryId?: string) => void }) {
-  const { state, mutate, busy } = useApp();
+  const { state, mutate, busy, notify } = useApp();
   const item = state?.projects.find((current) => current.id === id);
+  const projectTasks = state?.tasks.filter((task) => task.projectId === item?.id) ?? [];
+  const completedTasks = projectTasks.filter((task) => task.status === 'done').length;
+  const pendingProjectTasks = projectTasks.length - completedTasks;
   const [name, setName] = useState(item?.name ?? '');
   const [selectedCategoryId, setSelectedCategoryId] = useState(item?.categoryId ?? categoryId);
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>(() => state?.tasks
@@ -110,6 +113,16 @@ function ProjectDialog({ id, categoryId, onClose, onCreated }: { id?: string; ca
     if (!item || !window.confirm(`Eliminar o grupo “${item.name}”? As tarefas mantêm-se, mas ficam sem grupo.`)) return;
     if (await mutate(`/api/projects/${item.id}`, 'DELETE')) onClose();
   };
+  const complete = async () => {
+    if (!item) return;
+    const message = `Concluir o grupo “${item.name}”?\n\n${completedTasks} ${completedTasks === 1 ? 'tarefa concluída' : 'tarefas concluídas'} e ${pendingProjectTasks} ${pendingProjectTasks === 1 ? 'tarefa por fazer' : 'tarefas por fazer'} ficarão guardadas no Histórico com os seus estados atuais.`;
+    if (!window.confirm(message)) return;
+    const result = await mutate<Project>(`/api/projects/${item.id}`, 'PATCH', { archived: true }, { silent: true });
+    if (result) {
+      notify('Grupo concluído. Podes consultar o resultado no Histórico.');
+      onClose();
+    }
+  };
   return <Dialog title={item ? 'Editar grupo temporário' : 'Agrupar tarefas'} onClose={onClose}><form onSubmit={save} className="dialog-body temporary-group-dialog">
     <div className="field"><label htmlFor="project-name">Nome do objetivo *</label><input id="project-name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} placeholder="Ex.: Teste de Contabilidade, Evento de novembro" /></div>
     <div className="field"><label htmlFor="project-category">Categoria</label><select id="project-category" value={selectedCategoryId} onChange={(event) => { setSelectedCategoryId(event.target.value); setSelectedTaskIds([]); }} required>{state?.categories.filter((category) => !category.archived).map((category) => <option key={category.id} value={category.id}>{category.icon ? `${category.icon} ` : ''}{category.name}</option>)}</select></div>
@@ -120,7 +133,8 @@ function ProjectDialog({ id, categoryId, onClose, onCreated }: { id?: string; ca
         return <label key={task.id} className={checked ? 'selected' : ''}><input type="checkbox" checked={checked} onChange={() => toggleTask(task.id)} /><span className="temporary-group-check"><Check /></span><span><strong>{task.title}</strong><small>{childCount ? `${childCount} subtarefa${childCount === 1 ? '' : 's'}` : 'Tarefa principal'}</small></span></label>;
       })}</div> : <div className="temporary-group-empty"><Layers3 /><strong>Não há tarefas livres nesta categoria</strong><p>Cria primeiro uma tarefa ou retira-a de outro grupo.</p></div>}
     </fieldset>
-    <div className="dialog-actions">{item && <button type="button" className="button danger" onClick={() => void remove()}>Eliminar grupo</button>}<span /><button type="button" className="button subtle" onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !selectedTaskIds.length}>{item ? 'Guardar' : 'Criar grupo'}</button></div>
+    {item && <div className="temporary-group-completion"><CheckCircle2 /><div><strong>Terminar este objetivo</strong><p>Concluir o grupo não conclui as tarefas. O resultado fica disponível no Histórico.</p></div><span><b>{completedTasks}</b> feitas · <b>{pendingProjectTasks}</b> por fazer</span></div>}
+    <div className="dialog-actions">{item && <><button type="button" className="button danger" onClick={() => void remove()}>Eliminar grupo</button><button type="button" className="button subtle complete-group" disabled={busy} onClick={() => void complete()}><CheckCircle2 />Concluir grupo</button></>}<span /><button type="button" className="button subtle" onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !selectedTaskIds.length}>{item ? 'Guardar' : 'Criar grupo'}</button></div>
   </form></Dialog>;
 }
 

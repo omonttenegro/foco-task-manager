@@ -340,7 +340,8 @@ export class Store {
     });
 
     const selectedIds = new Set(taskIds);
-    this.all<{ id: string; categoryId: string | null }>('SELECT id,categoryId FROM tasks WHERE projectId=? AND parentTaskId IS NULL', projectId)
+    this.all<{ id: string; categoryId: string | null }>(`SELECT id,categoryId FROM tasks
+      WHERE projectId=? AND parentTaskId IS NULL AND status<>'done' AND archived=0`, projectId)
       .filter((task) => !selectedIds.has(task.id))
       .forEach((task) => this.updateTaskFamily(task.id, null, task.categoryId, stamp));
     selected.forEach((task) => this.updateTaskFamily(task.id, projectId, categoryId, stamp));
@@ -380,11 +381,12 @@ export class Store {
 
   private syncProjectLifecycle(projectId: string | null, previouslyUsed: boolean) {
     if (!projectId || !this.exists('projects', projectId)) return;
+    const project = this.get<Stored<Project>>('projects', projectId);
+    if (Boolean(project.archived)) return;
     const hasTasks = Boolean(this.one('SELECT id FROM tasks WHERE projectId=? LIMIT 1', projectId));
     const hasActiveRoot = Boolean(this.one(`SELECT id FROM tasks
       WHERE projectId=? AND parentTaskId IS NULL AND status<>'done' AND archived=0 LIMIT 1`, projectId));
-    if (hasActiveRoot) this.db.prepare('UPDATE projects SET archived=0,updatedAt=? WHERE id=?').run(now(), projectId);
-    else if (hasTasks || previouslyUsed) this.db.prepare('UPDATE projects SET archived=1,updatedAt=? WHERE id=?').run(now(), projectId);
+    if (!hasActiveRoot && (hasTasks || previouslyUsed)) this.db.prepare('UPDATE projects SET archived=1,updatedAt=? WHERE id=?').run(now(), projectId);
   }
   private assertNoParentCycle(taskId: string, parentId: string) {
     assert(taskId !== parentId, 'Uma tarefa não pode ser a sua própria subtarefa.');

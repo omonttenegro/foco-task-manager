@@ -111,4 +111,22 @@ describe('Store', () => {
     expect(store.list().projects[0].archived).toBe(true);
     expect(store.list().tasks[1].projectId).toBe(project.id);
   });
+
+  it('conclui manualmente um grupo preservando o resultado de cada tarefa', () => {
+    const category = store.category({ name: 'Faculdade', color: '#ef2b87' });
+    const completed = store.task({ title: 'Resolver ficha 1', categoryId: category.id });
+    const pending = store.task({ title: 'Resolver ficha 2', categoryId: category.id });
+    const project = store.project({ name: 'Exame de Física', categoryId: category.id, taskIds: [completed.id, pending.id] });
+    store.task({ status: 'done' }, completed.id);
+    store.project({ taskIds: [pending.id] }, project.id);
+
+    store.project({ archived: true }, project.id);
+    store.task({ title: 'Resolver ficha 2 mais tarde' }, pending.id);
+
+    const state = store.list();
+    expect(state.projects.find((item) => item.id === project.id)?.archived).toBe(true);
+    expect(state.tasks.find((task) => task.id === completed.id)?.status).toBe('done');
+    expect(state.tasks.find((task) => task.id === pending.id)?.status).toBe('todo');
+    expect(state.tasks.filter((task) => task.projectId === project.id)).toHaveLength(2);
+  });
 });
